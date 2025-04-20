@@ -28,6 +28,8 @@ Install the dependencies:
 ```bash
 pip install opencv-python cvzone numpy pyautogui
 
+```
+
 ## 📝 How to Use
 Connect your external webcam (if using one).
 
