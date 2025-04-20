@@ -26,7 +26,7 @@ Control your Microsoft PowerPoint slides using hand gestures via webcam! This pr
 Install the dependencies:
 
 ```bash
-pip install opencv-python cvzone numpy pyautogui
+pip install opencv-python cvzone numpy pyautogui PyQt5 mediapipe
 
 ```
 
