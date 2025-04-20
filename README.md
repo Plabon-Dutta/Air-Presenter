@@ -1,4 +1,4 @@
-# Air-Presenter 🖐️ Hand Gesture-Controlled PowerPoint Presenter
+# Air-Presenter (🖐️Hand Gesture-Controlled PowerPoint Presenter)
 
 Control your Microsoft PowerPoint slides using hand gestures via webcam! This project uses computer vision and hand tracking to let you:
 - Navigate slides forward/backward
