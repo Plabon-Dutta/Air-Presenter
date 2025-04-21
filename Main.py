@@ -1,192 +1,112 @@
 import cv2
-import mediapipe as mp
-import pyautogui
-import time
 import numpy as np
+import pyautogui
+import sys
+import threading
+from cvzone.HandTrackingModule import HandDetector
+from PyQt5 import QtWidgets
+from overlay import Overlay
 
-# Initialize MediaPipe Hands
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
-hands = mp_hands.Hands(
-    model_complexity=1,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
-    max_num_hands=1)  # We only need to track one hand
+# Screen and cam config
+width, height = 1280, 720
+gestureThreshold = 700
 
-# Initialize webcam
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)  # Use 1 for external webcam, 0 for default
+
 if not cap.isOpened():
-    print("Error: Could not open webcam")
+    print("❌ Error: Cannot open webcam!")
     exit()
 
-# Get screen dimensions
-frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+cap.set(3, width)
+cap.set(4, height)
 
-# Settings
-gesture_cooldown = 1.0  # Time in seconds between gestures
-horizontal_threshold = 0.15  # Horizontal movement threshold (as percentage of screen width)
-movement_threshold = 10  # Convert to pixel distance
-boundary_line_y = frame_height - 0  # Horizontal line at the middle of the screen
+# Hand detector
+detector = HandDetector(detectionCon=0.8, maxHands=1)
 
-# Variables to track hand movement
-previous_wrist_x = None
-last_gesture_time = time.time() - gesture_cooldown
-gesture_direction = None
-c = 0
+# Button & drawing control
+buttonPressed = False
+delay = 15
+counter = 0
 
-# Stats for debugging
-frame_count = 0
-fps_start_time = time.time()
-fps = 0
+annotationStart = False
 
-print("Hand Gesture PowerPoint Control - Above Line Only")
-print("-------------------------------------")
-print("Move your right hand from right to left ABOVE the line for NEXT slide")
-print("Move your right hand from left to right ABOVE the line for PREVIOUS slide")
-print("Hand gestures below the line will be ignored")
-print("Press 'q' to quit")
+# Pointer Control
+pointer_flag = False
 
-try:
-    while cap.isOpened():
-        success, image = cap.read()
-        if not success:
-            print("Error: Failed to grab frame")
-            break
-            
-        # Flip the image horizontally for a more intuitive experience
-        image = cv2.flip(image, 1)
-        
-        # Update FPS counter
-        frame_count += 1
-        if frame_count >= 10:
-            current_time = time.time()
-            fps = frame_count / (current_time - fps_start_time)
-            fps_start_time = current_time
-            frame_count = 0
-        
-        # Convert the image to RGB and process with MediaPipe
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = hands.process(image_rgb)
-        
-        # Draw the horizontal boundary line
-        cv2.line(image, (0, boundary_line_y), (frame_width, boundary_line_y), (0, 0, 255), 2)
-        
-        # Add text to indicate active and inactive zones
-        cv2.putText(image, "ACTIVE ZONE", (10, boundary_line_y - 20), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(image, "INACTIVE ZONE", (10, boundary_line_y + 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
-        
-        # Draw status on screen
-        cv2.putText(image, "Hand Gesture PowerPoint Control", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(image, f"FPS: {fps:.1f}", (frame_width - 120, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        # Display cooldown timer if active
-        cooldown_remaining = max(0, gesture_cooldown - (time.time() - last_gesture_time))
-        if cooldown_remaining > 0:
-            cv2.putText(image, f"Cooldown: {cooldown_remaining:.1f}s", (frame_width - 200, 60), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        
-        # If gesture was recently detected, show what it was
-        if gesture_direction and time.time() - last_gesture_time < 2:
-            cv2.putText(image, f"Detected: {gesture_direction}", (frame_width // 2 - 100, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-        
-        # Process hand landmarks if detected
-        hand_above_line = False
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                # Draw hand landmarks for visualization
-                mp_drawing.draw_landmarks(
-                    image,
-                    hand_landmarks,
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style())
-                
-                # Get wrist position (landmark 0)
-                wrist = hand_landmarks.landmark[mp_hands.HandLandmark.WRIST]
-                wrist_x = int(wrist.x * image.shape[1])
-                wrist_y = int(wrist.y * image.shape[0])
-                
-                # Check if the hand is above the boundary line
-                if wrist_y < boundary_line_y:
-                    hand_above_line = True
-                    # Draw a green circle at the wrist when above the line
-                    cv2.circle(image, (wrist_x, wrist_y), 8, (0, 255, 0), -1)
-                else:
-                    # Draw a gray circle at the wrist when below the line
-                    cv2.circle(image, (wrist_x, wrist_y), 8, (128, 128, 128), -1)
-                
-                # Only process gestures when hand is above the line
-                if hand_above_line:
-                    # Check if we have a previous position to compare
-                    if previous_wrist_x is not None and previous_wrist_y is not None:
-                        # Only compare if the previous position was also above the line
-                        if previous_wrist_y < boundary_line_y:
-                            # Calculate horizontal movement
-                            movement_x = wrist_x - previous_wrist_x
-                            
-                            # Draw a line showing the movement
-                            cv2.line(image, (previous_wrist_x, previous_wrist_y), 
-                                    (wrist_x, wrist_y), (0, 255, 0), 2)
-                            
-                            # Show movement amount
-                            cv2.putText(image, f"Movement: {movement_x}", (10, 60), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                            
-                            # Check if enough time has passed since last gesture
-                            current_time = time.time()
-                            if current_time - last_gesture_time > gesture_cooldown:
-                                # Check if the movement exceeds the threshold
-                                flag = False
-                                if abs(movement_x) > movement_threshold and flag == False:
-                                    if movement_x > 0:
-                                        # Movement to the right (in flipped frame) - Previous slide
-                                        print("Detected: Previous slide gesture")
-                                        pyautogui.press('left')
-                                        gesture_direction = "PREVIOUS slide"
-                                        last_gesture_time = current_time
-                                        flag = True
-                                    else:
-                                        # Movement to the left (in flipped frame) - Next slide
-                                        print("Detected: Next slide gesture")
-                                        pyautogui.press('right')
-                                        gesture_direction = "NEXT slide"
-                                        last_gesture_time = current_time
-                                        flag = True
-                            if c < 60 and flag == True:
-                                c = c + 1
-                            if c == 60:
-                                flag = True
-                                c = 0
-                # Update the previous position
-                previous_wrist_x = wrist_x
-                previous_wrist_y = wrist_y
+# Setup overlay app
+app = QtWidgets.QApplication(sys.argv)
+overlay = Overlay()
+overlay.show()
+
+# Run overlay in separate thread
+threading.Thread(target=app.exec_, daemon=True).start()
+
+# Main loop
+while True:
+    success, img = cap.read()
+    img = cv2.flip(img, 1)
+    hands, img = detector.findHands(img)
+
+    cv2.line(img, (0, gestureThreshold), (width, gestureThreshold), (0, 255, 0), 10)
+
+    if hands and not buttonPressed:
+        hand = hands[0]
+        cx, cy = hand["center"]
+        lmList = hand["lmList"]
+        fingers = detector.fingersUp(hand)
+        indexFinger = lmList[8][0], lmList[8][1]
+
+        # Gesture zone: top area
+        if cy <= gestureThreshold:
+            if fingers == [1, 0, 0, 0, 0]:  # Thumb
+                print("Previous Slide")
+                pyautogui.press('left')
+                buttonPressed = True
+                pointer_flag = False
+
+            elif fingers == [0, 0, 0, 0, 1]:  # Pinky
+                print("Next Slide")
+                pyautogui.press('right')
+                buttonPressed = True
+                pointer_flag = False
+
+        # Pointer mode
+        if fingers == [0, 1, 0, 0, 0]:
+            print("Pointer Mode")
+            if pointer_flag == False:
+                pointer_flag = True
+                pyautogui.hotkey('ctrl', 'l')
+            pyautogui.moveTo(indexFinger[0], indexFinger[1])
+            cv2.circle(img, indexFinger, 12, (0, 0, 255), cv2.FILLED)
+
+        # Draw mode
+        elif fingers == [0, 1, 1, 0, 0]:
+            print("Draw Mode")
+            pointer_flag = False
+            if not annotationStart:
+                overlay.new_stroke()
+                annotationStart = True
+            overlay.add_point(indexFinger)
+
         else:
-            # Reset if no hand is detected
-            previous_wrist_x = None
-            previous_wrist_y = None
-        
-        # Display the image
-        cv2.imshow('Hand Gesture PowerPoint Control', image)
-        
-        # Check for key press to exit
-        if cv2.waitKey(5) & 0xFF == ord('q'):
-            break
+            annotationStart = False
 
-except Exception as e:
-    print(f"Error occurred: {e}")
-    import traceback
-    traceback.print_exc()
+        # Undo
+        if fingers == [0, 1, 1, 1, 0]:
+            print("Undo")
+            pointer_flag = False
+            overlay.undo()
+            buttonPressed = True
 
-finally:
-    # Release resources
-    hands.close()
-    cap.release()
-    cv2.destroyAllWindows()
-    print("Hand gesture control terminated")
+    # Delay after button press
+    if buttonPressed:
+        counter += 1
+        if counter > delay:
+            buttonPressed = False
+            counter = 0
+
+    # Show camera (debug)
+    cv2.imshow("Camera", img)
+
+    if cv2.waitKey(1) == ord('q'):
+        break
