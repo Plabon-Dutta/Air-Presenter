@@ -26,7 +26,7 @@ Control your Microsoft PowerPoint slides using hand gestures via webcam! This pr
 Install the dependencies:
 
 ```bash
-pip install opencv-python cvzone numpy pyautogui PyQt5 mediapipe
+pip install opencv-python cvzone numpy pyautogui mediapipe
 
 ```
 
@@ -37,7 +37,11 @@ Open your .pptx file in Microsoft PowerPoint.
 
 Start the slide show (F5).
 
-Run the Python script.
+Run the Python script. 
+```bash
+python Main.py
+
+```
 
 Use gestures in front of your webcam to control the presentation.
 
